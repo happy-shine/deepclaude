@@ -29,7 +29,7 @@ class TestEvaluate:
         expected_keys = {
             "ic_mean", "ic_ir", "ic_positive_pct", "long_return",
             "long_sharpe", "max_drawdown", "turnover", "monotonicity",
-            "decay", "ic_series", "quantile_returns",
+            "decay", "ic_series", "quantile_returns", "long_return_series",
         }
         assert expected_keys == set(result.keys())
 

@@ -240,9 +240,10 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
         "decay": [round(d, 6) for d in decay],
         "ic_series": [round(float(x), 6) for x in valid_ics.tolist()],
         "quantile_returns": [round(r, 6) for r in q_rets],
+        "long_return_series": [round(float(x), 6) for x in lo_daily.tolist()],
     }
 
-    _logger.log("evaluate", split=split, **{k: v for k, v in result.items() if k not in ("ic_series", "quantile_returns")})
+    _logger.log("evaluate", split=split, **{k: v for k, v in result.items() if k not in ("ic_series", "quantile_returns", "long_return_series")})
 
     return result
 
