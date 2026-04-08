@@ -171,6 +171,16 @@ def _apply_universe_mask(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return result
 
 
+def _winsorize_returns(returns: np.ndarray, limit: float = 0.5) -> np.ndarray:
+    """Clip daily returns to [-limit, +limit] to remove data errors.
+
+    Default ±50% — any single-day return beyond this is almost certainly bad data.
+    """
+    result = returns.copy()
+    result = np.where(np.isnan(result), result, np.clip(result, -limit, limit))
+    return result
+
+
 def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
              universe_mask: np.ndarray | None = None) -> dict:
     """Evaluate a factor against forward returns.
@@ -191,6 +201,9 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
         factor, weights = factor_input
     else:
         factor = factor_input
+
+    # Clip extreme returns to remove data errors (e.g. SBNY +9746%)
+    forward_returns = _winsorize_returns(forward_returns)
 
     if universe_mask is not None:
         factor = _apply_universe_mask(factor, universe_mask)
