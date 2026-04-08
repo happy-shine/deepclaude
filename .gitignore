@@ -6,6 +6,7 @@ build/
 .numba_cache/
 workspace/
 factors/
+logs/
 *.parquet
 .env
 .venv/

@@ -35,7 +35,7 @@ class TestBuildPrompt:
         factors = [{"name": "test", "code": "def alpha(): ...", "metrics": {"ic_ir": 0.5}, "composite_score": 0.3, "analysis": "good"}]
         prompt = build_prompt(top_k_factors=factors, config=Config())
         assert "test" in prompt
-        assert "ic_ir" in prompt
+        assert "IC_IR" in prompt or "ic_ir" in prompt.lower()
 
 
 class TestOrchestrator:

@@ -107,12 +107,19 @@ class Orchestrator:
         return proc
 
     def _stream_output(self, proc: subprocess.Popen, session_id: str):
-        """Read stream-json output in a thread, print status updates."""
+        """Read stream-json output, print status, and save to logs/."""
+        logs_dir = Path(self.config.project_root) / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = open(logs_dir / f"{session_id}.jsonl", "a", encoding="utf-8")
+
         def _reader(pipe, label):
             for line in pipe:
                 line = line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
+                # Save raw line to JSONL log
+                log_file.write(line + "\n")
+                log_file.flush()
                 try:
                     event = json.loads(line)
                     event_type = event.get("type", "")
@@ -139,7 +146,7 @@ class Orchestrator:
         t_err = threading.Thread(target=_reader, args=(proc.stderr, "stderr"), daemon=True)
         t_out.start()
         t_err.start()
-        return t_out, t_err
+        return t_out, t_err, log_file
 
     def run(self):
         """Execute the evolution loop."""
@@ -158,13 +165,15 @@ class Orchestrator:
 
             processes = []
             threads = []
+            log_files = []
             for i in range(self.config.n_parallel):
                 session_id = f"{run_ts}_r{round_num + 1:03d}_i{i + 1:03d}"
                 workspace = self._make_workspace(session_id)
                 proc = self._launch_claude(prompt, workspace, session_id)
-                t_out, t_err = self._stream_output(proc, session_id)
+                t_out, t_err, log_file = self._stream_output(proc, session_id)
                 processes.append((proc, session_id))
                 threads.extend([t_out, t_err])
+                log_files.append(log_file)
                 print(f"[{session_id}] Launched")
 
             for proc, sid in processes:
@@ -173,6 +182,9 @@ class Orchestrator:
 
             for t in threads:
                 t.join(timeout=5)
+
+            for lf in log_files:
+                lf.close()
 
             new_top = registry.get_top_k(k=1)
             if new_top:
