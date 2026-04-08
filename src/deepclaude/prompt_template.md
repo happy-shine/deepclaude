@@ -84,6 +84,7 @@ result = evaluate(factor_values, forward_returns, universe_mask=spx_mask)
 #     "decay": [0.032, 0.028, ...],  # IC衰减(1d~5d)
 #     "ic_series": [...],         # 逐期IC序列
 #     "quantile_returns": [...],  # 分层收益(5层)
+#     "long_return_series": [...],# 逐日多头收益序列（用于画收益曲线）
 # }
 ```
 
