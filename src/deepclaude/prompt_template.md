@@ -124,7 +124,7 @@ validation = validate(factor_values, forward_returns)
 - **信号强度 → 仓位大小**：信号弱时减仓，无信号时空仓
 - **风控条件**：波动率飙升时降仓、回撤超阈值时清仓
 - 因子函数返回值约定：
-  - `(T, N) float32` — 纯因子值，由回测引擎等权分层
+  - `(T, N) float32` — 纯因子值，回测引擎选 top 30 只股票等权持有（硬性上限）
   - 或返回 `(factor_values, weights)` 元组 — 自定义权重，0 表示空仓
 
 ```python
