@@ -534,26 +534,35 @@ def ts_ema(data: np.ndarray, span: int) -> np.ndarray:
 
 @numba.njit(parallel=True, cache=True)
 def cs_rank(data: np.ndarray) -> np.ndarray:
-    """Cross-sectional percentile rank per row, range [0, 1]."""
+    """Cross-sectional percentile rank per row, range [0, 1].
+    O(N log N) via sorting instead of O(N^2) pairwise comparison.
+    """
     T, N = data.shape
     out = np.full((T, N), np.nan, dtype=np.float32)
     for t in numba.prange(T):
+        indices = np.empty(N, dtype=np.int64)
+        values = np.empty(N, dtype=np.float64)
         cnt = 0
         for j in range(N):
-            if not math.isnan(data[t, j]):
+            v = data[t, j]
+            if not math.isnan(v):
+                values[cnt] = v
+                indices[cnt] = j
                 cnt += 1
         if cnt == 0:
             continue
-        for j in range(N):
-            v = data[t, j]
-            if math.isnan(v):
-                continue
-            less = 0
-            for k in range(N):
-                u = data[t, k]
-                if not math.isnan(u) and u < v:
-                    less += 1
-            out[t, j] = np.float32(less / cnt)
+        for i in range(1, cnt):
+            kv = values[i]
+            ki = indices[i]
+            h = i - 1
+            while h >= 0 and values[h] > kv:
+                values[h + 1] = values[h]
+                indices[h + 1] = indices[h]
+                h -= 1
+            values[h + 1] = kv
+            indices[h + 1] = ki
+        for r in range(cnt):
+            out[t, indices[r]] = np.float32(r / cnt)
     return out
 
 
@@ -907,4 +916,265 @@ def min_op(a: np.ndarray, b: np.ndarray) -> np.ndarray:
                 out[t, j] = va
             else:
                 out[t, j] = va if va < vb else vb
+    return out
+
+
+# ---------------------------------------------------------------------------
+# New time-series operators
+# ---------------------------------------------------------------------------
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_delay(data: np.ndarray, period: int) -> np.ndarray:
+    """Lagged value: x[t - period]."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(period, T):
+            out[t, j] = data[t - period, j]
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_delta(data: np.ndarray, period: int) -> np.ndarray:
+    """First difference: x[t] - x[t - period]."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(period, T):
+            cur = data[t, j]
+            prev = data[t - period, j]
+            if math.isnan(cur) or math.isnan(prev):
+                out[t, j] = _F32_NAN
+            else:
+                out[t, j] = cur - prev
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_sum(data: np.ndarray, window: int) -> np.ndarray:
+    """Rolling sum over *window* days."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1, T):
+            s = np.float64(0.0)
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                v = data[k, j]
+                if not math.isnan(v):
+                    s += v
+                    cnt += 1
+            if cnt > 0:
+                out[t, j] = np.float32(s)
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_decay_linear(data: np.ndarray, window: int) -> np.ndarray:
+    """Linearly decay-weighted mean. Recent values get higher weight.
+    Weights: [1, 2, ..., window] / sum(1..window).
+    """
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1, T):
+            s = np.float64(0.0)
+            w_valid = np.float64(0.0)
+            for i in range(window):
+                v = data[t - window + 1 + i, j]
+                w = np.float64(i + 1)
+                if not math.isnan(v):
+                    s += v * w
+                    w_valid += w
+            if w_valid > 0:
+                out[t, j] = np.float32(s / w_valid)
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_covariance(data1: np.ndarray, data2: np.ndarray, window: int) -> np.ndarray:
+    """Rolling sample covariance between two (T, N) arrays."""
+    T, N = data1.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1, T):
+            sx = np.float64(0.0)
+            sy = np.float64(0.0)
+            sxy = np.float64(0.0)
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                x = data1[k, j]
+                y = data2[k, j]
+                if math.isnan(x) or math.isnan(y):
+                    continue
+                sx += x
+                sy += y
+                sxy += x * y
+                cnt += 1
+            if cnt > 1:
+                xbar = sx / cnt
+                ybar = sy / cnt
+                out[t, j] = np.float32((sxy - cnt * xbar * ybar) / (cnt - 1))
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_autocorr(data: np.ndarray, window: int, lag: int) -> np.ndarray:
+    """Rolling autocorrelation at given lag."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1 + lag, T):
+            sx = np.float64(0.0)
+            sy = np.float64(0.0)
+            sxy = np.float64(0.0)
+            sx2 = np.float64(0.0)
+            sy2 = np.float64(0.0)
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                x = data[k, j]
+                y = data[k - lag, j]
+                if math.isnan(x) or math.isnan(y):
+                    continue
+                sx += x
+                sy += y
+                sxy += x * y
+                sx2 += x * x
+                sy2 += y * y
+                cnt += 1
+            if cnt > 1:
+                xbar = sx / cnt
+                ybar = sy / cnt
+                dx = sx2 - cnt * xbar * xbar
+                dy = sy2 - cnt * ybar * ybar
+                if dx > 1e-12 and dy > 1e-12:
+                    out[t, j] = np.float32(
+                        (sxy - cnt * xbar * ybar) / math.sqrt(dx * dy)
+                    )
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_regression_residual(y: np.ndarray, x: np.ndarray, window: int) -> np.ndarray:
+    """Rolling OLS residual: y - (alpha + beta * x)."""
+    T, N = y.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1, T):
+            sx = np.float64(0.0)
+            sy = np.float64(0.0)
+            sxy = np.float64(0.0)
+            sx2 = np.float64(0.0)
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                xv = x[k, j]
+                yv = y[k, j]
+                if math.isnan(xv) or math.isnan(yv):
+                    continue
+                sx += xv
+                sy += yv
+                sxy += xv * yv
+                sx2 += xv * xv
+                cnt += 1
+            if cnt > 1:
+                xbar = sx / cnt
+                ybar = sy / cnt
+                denom = sx2 - cnt * xbar * xbar
+                if abs(denom) > 1e-12:
+                    beta = (sxy - cnt * xbar * ybar) / denom
+                    alpha = ybar - beta * xbar
+                    yv_cur = y[t, j]
+                    xv_cur = x[t, j]
+                    if not math.isnan(yv_cur) and not math.isnan(xv_cur):
+                        out[t, j] = np.float32(yv_cur - alpha - beta * xv_cur)
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_product(data: np.ndarray, window: int) -> np.ndarray:
+    """Rolling product over *window* days."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        for t in range(window - 1, T):
+            prod = np.float64(1.0)
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                v = data[k, j]
+                if not math.isnan(v):
+                    prod *= v
+                    cnt += 1
+            if cnt > 0:
+                out[t, j] = np.float32(prod)
+    return out
+
+
+@numba.njit(parallel=True, cache=True)
+def ts_quantile(data: np.ndarray, window: int, q: float) -> np.ndarray:
+    """Rolling quantile value within window using linear interpolation."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for j in numba.prange(N):
+        buf = np.empty(window, dtype=np.float64)
+        for t in range(window - 1, T):
+            cnt = 0
+            for k in range(t - window + 1, t + 1):
+                v = data[k, j]
+                if not math.isnan(v):
+                    buf[cnt] = v
+                    cnt += 1
+            if cnt == 0:
+                continue
+            for i in range(1, cnt):
+                key = buf[i]
+                h = i - 1
+                while h >= 0 and buf[h] > key:
+                    buf[h + 1] = buf[h]
+                    h -= 1
+                buf[h + 1] = key
+            pos = q * (cnt - 1)
+            lo = int(pos)
+            hi = lo + 1
+            if hi >= cnt:
+                out[t, j] = np.float32(buf[cnt - 1])
+            else:
+                frac = pos - lo
+                out[t, j] = np.float32(buf[lo] * (1 - frac) + buf[hi] * frac)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# New cross-sectional operators
+# ---------------------------------------------------------------------------
+
+
+@numba.njit(parallel=True, cache=True)
+def cs_percentile(data: np.ndarray, q: float) -> np.ndarray:
+    """Cross-sectional quantile value per row (broadcast)."""
+    T, N = data.shape
+    out = np.full((T, N), np.nan, dtype=np.float32)
+    for t in numba.prange(T):
+        buf = np.empty(N, dtype=np.float64)
+        cnt = 0
+        for j in range(N):
+            v = data[t, j]
+            if not math.isnan(v):
+                buf[cnt] = v
+                cnt += 1
+        if cnt == 0:
+            continue
+        for i in range(1, cnt):
+            key = buf[i]
+            h = i - 1
+            while h >= 0 and buf[h] > key:
+                buf[h + 1] = buf[h]
+                h -= 1
+            buf[h + 1] = key
+        pos = q * (cnt - 1)
+        lo = int(pos)
+        hi = lo + 1
+        val = buf[lo] if hi >= cnt else buf[lo] * (1 - (pos - lo)) + buf[hi] * (pos - lo)
+        for j in range(N):
+            out[t, j] = np.float32(val)
     return out

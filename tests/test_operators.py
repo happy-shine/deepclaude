@@ -77,3 +77,106 @@ class TestLogic:
         result = ops.if_op(cond, then_v, else_v)
         assert result[0, 0] == 10.0
         assert result[0, 1] == 20.0
+
+
+class TestTsDelay:
+    def test_basic(self):
+        data = np.arange(20, dtype=np.float32).reshape(10, 2)
+        result = ops.ts_delay(data, 3)
+        np.testing.assert_allclose(result[3, 0], data[0, 0])
+        np.testing.assert_allclose(result[3, 1], data[0, 1])
+
+    def test_first_rows_nan(self):
+        data = np.ones((10, 2), dtype=np.float32)
+        result = ops.ts_delay(data, 3)
+        assert np.all(np.isnan(result[:3, :]))
+
+
+class TestTsDelta:
+    def test_basic(self):
+        data = np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
+        result = ops.ts_delta(data, 1)
+        np.testing.assert_allclose(result[1, 0], 2.0)
+        np.testing.assert_allclose(result[2, 1], 2.0)
+
+
+class TestTsSum:
+    def test_known_values(self):
+        data = np.ones((10, 2), dtype=np.float32)
+        result = ops.ts_sum(data, 5)
+        np.testing.assert_allclose(result[4:, :], 5.0, atol=1e-5)
+
+
+class TestTsDecayLinear:
+    def test_shape_dtype(self, sample_data):
+        result = ops.ts_decay_linear(sample_data, 10)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+    def test_linear_weights(self):
+        data = np.array([[10, 10], [20, 20], [30, 30]], dtype=np.float32)
+        result = ops.ts_decay_linear(data, 3)
+        expected = (10 * 1 + 20 * 2 + 30 * 3) / 6.0
+        np.testing.assert_allclose(result[2, 0], expected, atol=1e-4)
+
+
+class TestTsCovariance:
+    def test_shape_dtype(self, sample_data):
+        result = ops.ts_covariance(sample_data, sample_data, 20)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+
+class TestTsAutocorr:
+    def test_shape_dtype(self, sample_data):
+        result = ops.ts_autocorr(sample_data, 20, 1)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+
+class TestTsRegressionResidual:
+    def test_shape_dtype(self, sample_data):
+        rng = np.random.default_rng(42)
+        x = rng.standard_normal(sample_data.shape).astype(np.float32)
+        result = ops.ts_regression_residual(sample_data, x, 20)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+
+class TestTsProduct:
+    def test_basic(self):
+        data = np.full((5, 2), 2.0, dtype=np.float32)
+        result = ops.ts_product(data, 3)
+        np.testing.assert_allclose(result[2, :], 8.0, atol=1e-4)
+
+
+class TestTsQuantile:
+    def test_shape_dtype(self, sample_data):
+        result = ops.ts_quantile(sample_data, 20, 0.5)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+
+class TestCsPercentile:
+    def test_shape_dtype(self, sample_data):
+        result = ops.cs_percentile(sample_data, 0.5)
+        assert result.shape == sample_data.shape
+        assert result.dtype == np.float32
+
+
+class TestCsRankOptimized:
+    def test_range(self):
+        rng = np.random.default_rng(42)
+        data = rng.standard_normal((50, 100)).astype(np.float32)
+        result = ops.cs_rank(data)
+        valid = result[~np.isnan(result)]
+        assert valid.min() >= 0.0
+        assert valid.max() <= 1.0
+
+    def test_nan_handling(self):
+        data = np.array([[1.0, np.nan, 3.0, 2.0]], dtype=np.float32)
+        result = ops.cs_rank(data)
+        assert np.isnan(result[0, 1])
+        np.testing.assert_allclose(result[0, 0], 0.0, atol=1e-5)
+        np.testing.assert_allclose(result[0, 3], 1 / 3, atol=1e-5)
+        np.testing.assert_allclose(result[0, 2], 2 / 3, atol=1e-5)
