@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.numba_cache/
+workspace/
+factors/
+*.parquet
+.env
+.venv/
