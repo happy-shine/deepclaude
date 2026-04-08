@@ -84,10 +84,14 @@ def _monotonicity(quantile_rets: list[float]) -> float:
     return float((xd * yd).sum() / denom)
 
 
-def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
-    """Daily long-only (top quintile) portfolio return series.
+MAX_HOLDINGS = 30  # Hard cap on portfolio size
 
-    If *weights* is provided, use positive weights instead of top quintile.
+
+def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
+    """Daily long-only portfolio return series.
+
+    Selects top MAX_HOLDINGS stocks by factor rank (equal weight).
+    If *weights* is provided, use positive weights instead.
     """
     T, N = factor.shape
     l_ret = np.zeros(T, dtype=np.float64)
@@ -103,19 +107,26 @@ def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndar
         if weights is not None:
             w_valid = weights[t, mask].astype(np.float64)
             w_positive = np.where(w_valid > 0, w_valid, 0.0)
+            # Keep only top MAX_HOLDINGS by weight
+            if (w_positive > 0).sum() > MAX_HOLDINGS:
+                threshold = np.sort(w_positive)[-MAX_HOLDINGS]
+                w_positive = np.where(w_positive >= threshold, w_positive, 0.0)
             w_sum = w_positive.sum()
             if w_sum > 0:
                 l_ret[t] = (w_positive * r_valid).sum() / w_sum
         else:
             ranks = _rankdata(f_valid)
-            top = ranks >= len(f_valid) * 0.8
+            # Top MAX_HOLDINGS instead of top quintile
+            n_select = min(MAX_HOLDINGS, len(f_valid))
+            threshold = np.sort(ranks)[-n_select]
+            top = ranks >= threshold
             if top.sum() > 0:
                 l_ret[t] = r_valid[top].mean()
     return l_ret
 
 
 def _turnover(factor: np.ndarray) -> float:
-    """Average daily turnover of top quintile."""
+    """Average daily turnover of top MAX_HOLDINGS portfolio."""
     T, N = factor.shape
     turnovers = []
     prev_top = None
@@ -129,7 +140,9 @@ def _turnover(factor: np.ndarray) -> float:
         f_valid = f_row[mask]
         r = _rankdata(f_valid)
         ranks[mask] = r
-        top = set(np.where(ranks >= n * 0.8)[0])
+        n_select = min(MAX_HOLDINGS, n)
+        threshold = np.sort(r)[-n_select]
+        top = set(np.where(ranks >= threshold)[0])
         if prev_top is not None and len(top) > 0 and len(prev_top) > 0:
             overlap = len(top & prev_top)
             turnovers.append(1.0 - overlap / max(len(top), len(prev_top)))
