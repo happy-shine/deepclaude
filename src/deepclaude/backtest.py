@@ -252,3 +252,112 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train") ->
     _logger.log("evaluate", split=split, **{k: v for k, v in result.items() if k not in ("ic_series", "quantile_returns")})
 
     return result
+
+
+def validate(
+    factor: np.ndarray,
+    forward_returns: np.ndarray,
+    n_random: int = 100,
+) -> dict:
+    """Run 5 anti-overfit gates on a factor.
+
+    Returns dict with gate results, pass count, and details.
+    """
+    details = {}
+
+    # Gate 1: Parameter Robustness — IC changes < 30% when factor is shifted
+    base_ic = _rank_ic_per_row(factor, forward_returns)
+    base_ic_mean = float(np.nanmean(base_ic))
+    ic_variants = []
+    for shift in [-2, -1, 1, 2]:
+        shifted = np.roll(factor, shift, axis=0)
+        if shift > 0:
+            shifted[:shift, :] = np.nan
+        else:
+            shifted[shift:, :] = np.nan
+        ic_v = float(np.nanmean(_rank_ic_per_row(shifted, forward_returns)))
+        ic_variants.append(ic_v)
+    ic_change = max(abs(v - base_ic_mean) for v in ic_variants) / max(abs(base_ic_mean), 1e-8)
+    param_robust = ic_change < 0.30
+    details["param_robust_max_change"] = round(ic_change, 4)
+
+    # Gate 2: Time Stability — IC positive in >= 4 of 5 segments
+    T = len(base_ic)
+    seg_size = T // 5
+    positive_segs = 0
+    seg_ics = []
+    for s in range(5):
+        start = s * seg_size
+        end = (s + 1) * seg_size if s < 4 else T
+        seg = base_ic[start:end]
+        seg_valid = seg[~np.isnan(seg)]
+        seg_mean = float(seg_valid.mean()) if len(seg_valid) > 0 else 0.0
+        seg_ics.append(seg_mean)
+        if seg_mean > 0:
+            positive_segs += 1
+    time_stable = positive_segs >= 4
+    details["time_stable_seg_ics"] = [round(x, 6) for x in seg_ics]
+    details["time_stable_positive_count"] = positive_segs
+
+    # Gate 3: Cap Neutral — positive IC in large/mid/small cap groups
+    avg_factor = np.nanmean(np.abs(factor), axis=0)
+    N = factor.shape[1]
+    sorted_idx = np.argsort(avg_factor)
+    third = N // 3
+    cap_ics = []
+    cap_names = ["small", "mid", "large"]
+    cap_positive = 0
+    for g, name in enumerate(cap_names):
+        start = g * third
+        end = (g + 1) * third if g < 2 else N
+        cols = sorted_idx[start:end]
+        sub_factor = factor[:, cols]
+        sub_returns = forward_returns[:, cols]
+        ic_g = _rank_ic_per_row(sub_factor, sub_returns)
+        ic_g_mean = float(np.nanmean(ic_g))
+        cap_ics.append(ic_g_mean)
+        if ic_g_mean > 0:
+            cap_positive += 1
+    cap_neutral = cap_positive == 3
+    details["cap_neutral_ics"] = {n: round(v, 6) for n, v in zip(cap_names, cap_ics)}
+
+    # Gate 4: Beat Random — better than 95% of random factors
+    random_ic_means = []
+    rng = np.random.default_rng(0)
+    for _ in range(n_random):
+        rand_factor = rng.standard_normal(factor.shape).astype(np.float32)
+        rand_ic = _rank_ic_per_row(rand_factor, forward_returns)
+        random_ic_means.append(float(np.nanmean(rand_ic)))
+    percentile = float(np.mean([1 if base_ic_mean > r else 0 for r in random_ic_means]))
+    beat_random = percentile >= 0.95
+    details["beat_random_percentile"] = round(percentile, 4)
+
+    # Gate 5: Decay Slow — IC at day 5 still > 50% of day 1
+    shifted_5 = np.roll(forward_returns, -5, axis=0)
+    shifted_5[-5:, :] = np.nan
+    ic_day5 = float(np.nanmean(_rank_ic_per_row(factor, shifted_5)))
+    decay_ratio = ic_day5 / base_ic_mean if abs(base_ic_mean) > 1e-8 else 0.0
+    decay_slow = decay_ratio > 0.5
+    details["decay_ratio"] = round(decay_ratio, 4)
+    details["decay_ic_day1"] = round(base_ic_mean, 6)
+    details["decay_ic_day5"] = round(ic_day5, 6)
+
+    gates = {
+        "param_robust": param_robust,
+        "time_stable": time_stable,
+        "cap_neutral": cap_neutral,
+        "beat_random": beat_random,
+        "decay_slow": decay_slow,
+    }
+    passed = sum(gates.values())
+
+    result = {
+        **gates,
+        "passed": passed,
+        "total": 5,
+        "details": details,
+    }
+
+    _logger.log("validate", passed=passed, total=5, **gates)
+
+    return result
