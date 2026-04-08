@@ -81,6 +81,7 @@ result = evaluate(factor_values, forward_returns, universe_mask=spx_mask)
 #     "long_sharpe": 1.02,        # 纯多头Sharpe
 #     "max_drawdown": -0.12,      # 纯多头最大回撤
 #     "turnover": 0.35,           # 换手率
+#     "cost_drag": 0.088,         # 年化交易成本拖累（已从收益中扣除）
 #     "monotonicity": 0.95,       # 分层收益单调性
 #     "decay": [0.032, 0.028, ...],  # IC衰减(1d~5d)
 #     "ic_series": [...],         # 逐期IC序列
@@ -137,6 +138,17 @@ def alpha(ctx):
     weights = signal * position_scale
     return signal, weights
 ```
+
+### 交易成本
+
+回测引擎已内置交易成本模型：每次换仓扣除 10bps（单边 5bps）。`cost_drag` 字段显示年化成本拖累。高换手率因子（>30%日换手）的成本拖累可能吃掉大部分 alpha。设计因子时要在信号强度和换手率之间权衡。
+
+### 市场 Regime 意识
+
+分析因子时，必须拆分不同市场环境的表现：
+- 你可以用市场收益率（正/负月份）、波动率水平（VIX高/低）、或趋势状态来定义 regime
+- 一个只在牛市赚钱的因子可能只是低 beta 伪装成 alpha
+- 在 analysis 中报告不同 regime 下的表现差异
 
 ### 提交
 

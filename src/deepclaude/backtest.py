@@ -85,16 +85,19 @@ def _monotonicity(quantile_rets: list[float]) -> float:
 
 
 MAX_HOLDINGS = 30  # Hard cap on portfolio size
+COST_PER_TURNOVER = 0.001  # 10bps round-trip cost per unit of turnover
 
 
 def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
-    """Daily long-only portfolio return series.
+    """Daily long-only portfolio return series with transaction costs.
 
     Selects top MAX_HOLDINGS stocks by factor rank (equal weight).
+    Deducts COST_PER_TURNOVER * fraction_changed each day.
     If *weights* is provided, use positive weights instead.
     """
     T, N = factor.shape
     l_ret = np.zeros(T, dtype=np.float64)
+    prev_top_set: set | None = None
     for t in range(T):
         f_row = factor[t, :]
         r_row = returns[t, :]
@@ -104,24 +107,39 @@ def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndar
             continue
         f_valid = f_row[mask]
         r_valid = r_row[mask]
+        valid_indices = np.where(mask)[0]
         if weights is not None:
             w_valid = weights[t, mask].astype(np.float64)
             w_positive = np.where(w_valid > 0, w_valid, 0.0)
-            # Keep only top MAX_HOLDINGS by weight
             if (w_positive > 0).sum() > MAX_HOLDINGS:
                 threshold = np.sort(w_positive)[-MAX_HOLDINGS]
                 w_positive = np.where(w_positive >= threshold, w_positive, 0.0)
             w_sum = w_positive.sum()
             if w_sum > 0:
-                l_ret[t] = (w_positive * r_valid).sum() / w_sum
+                gross = (w_positive * r_valid).sum() / w_sum
+                cur_set = set(valid_indices[w_positive > 0])
+                if prev_top_set is not None and len(prev_top_set) > 0:
+                    overlap = len(cur_set & prev_top_set)
+                    frac_changed = 1.0 - overlap / max(len(cur_set), len(prev_top_set))
+                    l_ret[t] = gross - COST_PER_TURNOVER * frac_changed
+                else:
+                    l_ret[t] = gross
+                prev_top_set = cur_set
         else:
             ranks = _rankdata(f_valid)
-            # Top MAX_HOLDINGS instead of top quintile
             n_select = min(MAX_HOLDINGS, len(f_valid))
             threshold = np.sort(ranks)[-n_select]
             top = ranks >= threshold
             if top.sum() > 0:
-                l_ret[t] = r_valid[top].mean()
+                gross = r_valid[top].mean()
+                cur_set = set(valid_indices[top])
+                if prev_top_set is not None and len(prev_top_set) > 0:
+                    overlap = len(cur_set & prev_top_set)
+                    frac_changed = 1.0 - overlap / max(len(cur_set), len(prev_top_set))
+                    l_ret[t] = gross - COST_PER_TURNOVER * frac_changed
+                else:
+                    l_ret[t] = gross
+                prev_top_set = cur_set
     return l_ret
 
 
@@ -254,6 +272,9 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
 
     turn = _turnover(factor)
 
+    # lo_daily already includes transaction costs (COST_PER_TURNOVER)
+    cost_drag = round(turn * COST_PER_TURNOVER * 252, 4)  # annualized cost drag
+
     result = {
         "ic_mean": round(ic_mean, 6),
         "ic_ir": round(ic_ir, 4),
@@ -262,6 +283,7 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
         "long_sharpe": round(lo_sharpe, 4),
         "max_drawdown": round(mdd, 4),
         "turnover": round(turn, 4),
+        "cost_drag": cost_drag,
         "monotonicity": round(mono, 4),
         "decay": [round(d, 6) for d in decay],
         "ic_series": [round(float(x), 6) for x in valid_ics.tolist()],
