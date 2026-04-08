@@ -53,7 +53,7 @@ class TestFullPipeline:
 
         result = evaluate(fac_slice, fwd_slice)
         assert "ic_mean" in result
-        assert "sharpe" in result
+        assert "long_sharpe" in result
         assert len(result["decay"]) == 5
         assert len(result["quantile_returns"]) == 5
 

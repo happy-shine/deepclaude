@@ -11,8 +11,8 @@ from pathlib import Path
 from deepclaude import logger as _logger
 
 DEFAULT_WEIGHTS = {
-    "ic_ir": 0.30,
-    "sharpe": 0.20,
+    "ic_ir": 0.25,
+    "long_sharpe": 0.25,
     "monotonicity": 0.15,
     "ic_positive_pct": 0.15,
     "long_return": 0.10,

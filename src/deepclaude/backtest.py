@@ -84,36 +84,11 @@ def _monotonicity(quantile_rets: list[float]) -> float:
     return float((xd * yd).sum() / denom)
 
 
-def _long_short_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
-    """Daily long-short portfolio return series."""
-    T, N = factor.shape
-    ls_ret = np.zeros(T, dtype=np.float64)
-    for t in range(T):
-        f_row = factor[t, :]
-        r_row = returns[t, :]
-        mask = ~np.isnan(f_row) & ~np.isnan(r_row)
-        n = mask.sum()
-        if n < 10:
-            continue
-        f_valid = f_row[mask]
-        r_valid = r_row[mask]
-        if weights is not None:
-            w_valid = weights[t, mask].astype(np.float64)
-            w_sum = np.abs(w_valid).sum()
-            if w_sum > 0:
-                ls_ret[t] = (w_valid * r_valid).sum() / w_sum
-        else:
-            ranks = _rankdata(f_valid)
-            n_valid = len(f_valid)
-            top = ranks >= n_valid * 0.8
-            bot = ranks < n_valid * 0.2
-            if top.sum() > 0 and bot.sum() > 0:
-                ls_ret[t] = r_valid[top].mean() - r_valid[bot].mean()
-    return ls_ret
+def _long_only_returns(factor: np.ndarray, returns: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
+    """Daily long-only (top quintile) portfolio return series.
 
-
-def _long_only_returns(factor: np.ndarray, returns: np.ndarray) -> np.ndarray:
-    """Daily long-only (top quintile) portfolio return series."""
+    If *weights* is provided, use positive weights instead of top quintile.
+    """
     T, N = factor.shape
     l_ret = np.zeros(T, dtype=np.float64)
     for t in range(T):
@@ -125,10 +100,17 @@ def _long_only_returns(factor: np.ndarray, returns: np.ndarray) -> np.ndarray:
             continue
         f_valid = f_row[mask]
         r_valid = r_row[mask]
-        ranks = _rankdata(f_valid)
-        top = ranks >= len(f_valid) * 0.8
-        if top.sum() > 0:
-            l_ret[t] = r_valid[top].mean()
+        if weights is not None:
+            w_valid = weights[t, mask].astype(np.float64)
+            w_positive = np.where(w_valid > 0, w_valid, 0.0)
+            w_sum = w_positive.sum()
+            if w_sum > 0:
+                l_ret[t] = (w_positive * r_valid).sum() / w_sum
+        else:
+            ranks = _rankdata(f_valid)
+            top = ranks >= len(f_valid) * 0.8
+            if top.sum() > 0:
+                l_ret[t] = r_valid[top].mean()
     return l_ret
 
 
@@ -202,7 +184,7 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
 
     Returns
     -------
-    dict with 12 evaluation metrics
+    dict with 11 evaluation metrics
     """
     weights = None
     if isinstance(factor_input, tuple):
@@ -238,28 +220,24 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
     q_rets = _quantile_returns(factor, forward_returns)
     mono = _monotonicity(q_rets)
 
-    ls_daily = _long_short_returns(factor, forward_returns, weights)
-    ls_annual = _annualize(ls_daily)
-    ls_sharpe = _sharpe(ls_daily)
-    cumulative = np.cumprod(1 + ls_daily)
-    mdd = _max_drawdown(cumulative)
-
-    lo_daily = _long_only_returns(factor, forward_returns)
+    lo_daily = _long_only_returns(factor, forward_returns, weights)
     lo_annual = _annualize(lo_daily)
+    lo_sharpe = _sharpe(lo_daily)
+    cumulative = np.cumprod(1 + lo_daily)
+    mdd = _max_drawdown(cumulative)
 
     turn = _turnover(factor)
 
     result = {
         "ic_mean": round(ic_mean, 6),
         "ic_ir": round(ic_ir, 4),
-        "long_short_return": round(ls_annual, 4),
-        "max_drawdown": round(mdd, 4),
-        "turnover": round(turn, 4),
-        "sharpe": round(ls_sharpe, 4),
         "ic_positive_pct": round(ic_positive_pct, 4),
         "long_return": round(lo_annual, 4),
-        "decay": [round(d, 6) for d in decay],
+        "long_sharpe": round(lo_sharpe, 4),
+        "max_drawdown": round(mdd, 4),
+        "turnover": round(turn, 4),
         "monotonicity": round(mono, 4),
+        "decay": [round(d, 6) for d in decay],
         "ic_series": [round(float(x), 6) for x in valid_ics.tolist()],
         "quantile_returns": [round(r, 6) for r in q_rets],
     }

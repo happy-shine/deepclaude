@@ -81,7 +81,7 @@ class TestGetTopK:
             registry.submit(
                 name=f"factor_{i}",
                 code=f"def alpha_{i}(ctx): ...",
-                metrics={"ic_ir": score, "sharpe": score, "monotonicity": score,
+                metrics={"ic_ir": score, "long_sharpe": score, "monotonicity": score,
                          "ic_positive_pct": score, "long_return": score,
                          "decay": [score] * 5},
                 validation={"passed": 3, "total": 5},

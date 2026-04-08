@@ -70,14 +70,13 @@ result = evaluate(factor_values, forward_returns, universe_mask=spx_mask)
 # {
 #     "ic_mean": 0.032,           # IC均值
 #     "ic_ir": 0.45,              # IC_IR = mean(IC) / std(IC)
-#     "long_short_return": 0.18,  # 多空年化收益
-#     "max_drawdown": -0.12,      # 最大回撤
-#     "turnover": 0.35,           # 换手率
-#     "sharpe": 1.02,             # 多空Sharpe
 #     "ic_positive_pct": 0.66,    # IC为正的天数占比
 #     "long_return": 0.15,        # 纯多头年化收益
-#     "decay": [0.032, 0.028, ...],  # IC衰减(1d~5d)
+#     "long_sharpe": 1.02,        # 纯多头Sharpe
+#     "max_drawdown": -0.12,      # 纯多头最大回撤
+#     "turnover": 0.35,           # 换手率
 #     "monotonicity": 0.95,       # 分层收益单调性
+#     "decay": [0.032, 0.028, ...],  # IC衰减(1d~5d)
 #     "ic_series": [...],         # 逐期IC序列
 #     "quantile_returns": [...],  # 分层收益(5层)
 # }
@@ -138,7 +137,7 @@ def alpha(ctx):
 submit(
     name="你给因子起的名字",
     code="def alpha(ctx): ...",   # 完整可执行源码
-    metrics=result,               # evaluate() 返回的12项指标
+    metrics=result,               # evaluate() 返回的11项指标
     validation=validation,        # validate() 返回的5道门结果
     analysis="你的分析（为什么有效/失效，改进方向）",
     parent="parent_factor_id",    # 如有父因子（可选）
@@ -267,7 +266,7 @@ submit(
 1. **研究概览** — 本轮探索了多少因子，提交了多少，最优因子摘要
 2. **最优因子详情** — 每个提交因子的：
    - 因子逻辑描述与代码
-   - 12 项回测指标表格
+   - 11 项回测指标表格
    - 5 道反过拟合门结果
    - 训练集 vs 测试集表现对比
    - IC 时序折线图

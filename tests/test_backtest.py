@@ -27,9 +27,9 @@ class TestEvaluate:
         factor, fwd = factor_and_returns
         result = backtest.evaluate(factor, fwd)
         expected_keys = {
-            "ic_mean", "ic_ir", "long_short_return", "max_drawdown",
-            "turnover", "sharpe", "ic_positive_pct", "long_return",
-            "decay", "monotonicity", "ic_series", "quantile_returns",
+            "ic_mean", "ic_ir", "ic_positive_pct", "long_return",
+            "long_sharpe", "max_drawdown", "turnover", "monotonicity",
+            "decay", "ic_series", "quantile_returns",
         }
         assert expected_keys == set(result.keys())
 

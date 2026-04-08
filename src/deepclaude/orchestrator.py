@@ -7,6 +7,7 @@ import os
 import subprocess
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from deepclaude import registry
@@ -24,7 +25,7 @@ class Config:
     project_root: str = "."
     data_dir: str = "/Users/shine/trader-data"
     composite_weights: dict = field(default_factory=lambda: {
-        "ic_ir": 0.30, "sharpe": 0.20, "monotonicity": 0.15,
+        "ic_ir": 0.25, "long_sharpe": 0.25, "monotonicity": 0.15,
         "ic_positive_pct": 0.15, "long_return": 0.10, "decay": 0.10,
     })
 
@@ -46,7 +47,7 @@ def build_prompt(top_k_factors: list[dict], config: Config) -> str:
             lines.append(f"```python\n{f.get('code', '')}\n```")
             metrics = f.get("metrics", {})
             lines.append(f"Metrics: IC_IR={metrics.get('ic_ir', '?')}, "
-                         f"Sharpe={metrics.get('sharpe', '?')}, "
+                         f"Long_Sharpe={metrics.get('long_sharpe', '?')}, "
                          f"Mono={metrics.get('monotonicity', '?')}")
             if f.get("analysis"):
                 lines.append(f"Analysis: {f['analysis']}")
@@ -92,7 +93,8 @@ class Orchestrator:
             "--dangerously-skip-permissions",
             "--output-format", "stream-json",
             "--verbose",
-            "--cwd", workspace,
+            "--model", "opus",
+            "--add-dir", workspace,
             "-p", final_prompt,
         ]
 
@@ -100,6 +102,7 @@ class Orchestrator:
             cmd, env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            cwd=workspace,
         )
         return proc
 
@@ -114,15 +117,23 @@ class Orchestrator:
                     event = json.loads(line)
                     event_type = event.get("type", "")
                     if event_type == "assistant":
-                        msg = event.get("message", "")[:100]
+                        msg = event.get("message", "")
+                        if isinstance(msg, dict):
+                            msg = msg.get("content", str(msg))
                         print(f"[{session_id}] {msg}")
                     elif event_type == "tool_use":
-                        name = event.get("name", "")
-                        print(f"[{session_id}] tool: {name}")
+                        name = event.get("name", event.get("tool", ""))
+                        inp = event.get("input", "")
+                        if isinstance(inp, dict):
+                            inp = inp.get("command", inp.get("content", str(inp)))
+                        print(f"[{session_id}] tool: {name} | {inp}")
+                    elif event_type == "tool_result":
+                        output = event.get("output", "")
+                        print(f"[{session_id}] result: {output}")
                     elif event_type == "result":
                         print(f"[{session_id}] Done")
                 except json.JSONDecodeError:
-                    print(f"[{session_id}] {label}: {line[:120]}")
+                    print(f"[{session_id}] {label}: {line}")
 
         t_out = threading.Thread(target=_reader, args=(proc.stdout, "stdout"), daemon=True)
         t_err = threading.Thread(target=_reader, args=(proc.stderr, "stderr"), daemon=True)
@@ -137,6 +148,8 @@ class Orchestrator:
               f"top {self.config.top_k} selection")
         print()
 
+        run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
         for round_num in range(self.config.max_rounds):
             print(f"--- Round {round_num + 1}/{self.config.max_rounds} ---")
 
@@ -146,7 +159,7 @@ class Orchestrator:
             processes = []
             threads = []
             for i in range(self.config.n_parallel):
-                session_id = f"r{round_num + 1:03d}_i{i + 1:03d}"
+                session_id = f"{run_ts}_r{round_num + 1:03d}_i{i + 1:03d}"
                 workspace = self._make_workspace(session_id)
                 proc = self._launch_claude(prompt, workspace, session_id)
                 t_out, t_err = self._stream_output(proc, session_id)
