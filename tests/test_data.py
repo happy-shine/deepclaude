@@ -64,3 +64,27 @@ class TestGetUniverse:
         assert isinstance(universe, list)
         assert len(universe) > 400
         assert all(isinstance(s, str) for s in universe)
+
+
+class TestGetUniverseMask:
+    def test_shape_matches_data(self):
+        close = data.get("close")
+        mask = data.get_universe_mask("spx")
+        assert mask.shape == close.shape
+        assert mask.dtype == bool
+
+    def test_not_all_true(self):
+        """Some stocks should be excluded (not in SPX)."""
+        mask = data.get_universe_mask("spx")
+        # SPX has ~500 stocks, data has 611, so some columns should be False
+        any_row = mask[mask.shape[0] // 2, :]  # middle row
+        assert any_row.sum() < mask.shape[1]  # not all True
+        assert any_row.sum() > 300  # but most are in
+
+    def test_membership_varies_over_time(self):
+        """Membership should change across months."""
+        mask = data.get_universe_mask("spx")
+        first_month = mask[0, :]
+        last_month = mask[-1, :]
+        # At least some differences between first and last month
+        assert not np.array_equal(first_month, last_month)

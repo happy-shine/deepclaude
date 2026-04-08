@@ -182,7 +182,15 @@ def _sharpe(daily_returns: np.ndarray) -> float:
     return float(mean / std * np.sqrt(252))
 
 
-def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train") -> dict:
+def _apply_universe_mask(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Set non-member positions to NaN so they are excluded from all calcs."""
+    result = arr.copy()
+    result[~mask] = np.nan
+    return result
+
+
+def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
+             universe_mask: np.ndarray | None = None) -> dict:
     """Evaluate a factor against forward returns.
 
     Parameters
@@ -190,6 +198,7 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train") ->
     factor_input : np.ndarray (T, N) or tuple(factor, weights)
     forward_returns : np.ndarray (T, N)
     split : "train" or "test" (for logging only; caller passes correct slice)
+    universe_mask : optional (T, N) bool array — only evaluate stocks where True
 
     Returns
     -------
@@ -200,6 +209,12 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train") ->
         factor, weights = factor_input
     else:
         factor = factor_input
+
+    if universe_mask is not None:
+        factor = _apply_universe_mask(factor, universe_mask)
+        forward_returns = _apply_universe_mask(forward_returns, universe_mask)
+        if weights is not None:
+            weights = _apply_universe_mask(weights, universe_mask)
 
     ic_series_arr = _rank_ic_per_row(factor, forward_returns)
     valid_ics = ic_series_arr[~np.isnan(ic_series_arr)]
@@ -258,11 +273,16 @@ def validate(
     factor: np.ndarray,
     forward_returns: np.ndarray,
     n_random: int = 100,
+    universe_mask: np.ndarray | None = None,
 ) -> dict:
     """Run 5 anti-overfit gates on a factor.
 
     Returns dict with gate results, pass count, and details.
     """
+    if universe_mask is not None:
+        factor = _apply_universe_mask(factor, universe_mask)
+        forward_returns = _apply_universe_mask(forward_returns, universe_mask)
+
     details = {}
 
     # Gate 1: Parameter Robustness — IC changes < 30% when factor is shifted

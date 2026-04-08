@@ -79,3 +79,33 @@ def get_universe(name: str, month: str) -> list[str]:
     df = _load_universe(name)
     filtered = df[df["month"] == month]
     return sorted(filtered["ticker"].tolist())
+
+
+@lru_cache(maxsize=4)
+def get_universe_mask(name: str) -> np.ndarray:
+    """Return (T, N) bool mask: True if stock is in universe that month.
+
+    Uses the date index and symbol list from the 'close' field.
+    Membership is looked up monthly — all days in a month share the same mask.
+    """
+    _, dates, symbols = _load_field("close")
+    T, N = len(dates), len(symbols)
+    sym_to_idx = {s: i for i, s in enumerate(symbols)}
+
+    df = _load_universe(name)
+    # Build a dict: month_str -> set of ticker indices
+    month_members: dict[str, set[int]] = {}
+    for _, row in df.iterrows():
+        m = row["month"]
+        ticker = row["ticker"]
+        if ticker in sym_to_idx:
+            month_members.setdefault(m, set()).add(sym_to_idx[ticker])
+
+    mask = np.zeros((T, N), dtype=bool)
+    for t in range(T):
+        month_str = str(dates[t])[:7]  # "YYYY-MM"
+        members = month_members.get(month_str, set())
+        for idx in members:
+            mask[t, idx] = True
+
+    return mask

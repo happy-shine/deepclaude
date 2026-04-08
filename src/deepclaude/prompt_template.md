@@ -52,8 +52,20 @@ from deepclaude.registry import submit
 
 ### 回测
 
+**重要：必须使用 universe_mask 避免幸存者偏差。** 只在当月实际属于 S&P 500 的股票上评估。
+
 ```python
-result = evaluate(factor_values, forward_returns)
+from deepclaude.data import get_universe_mask
+
+spx_mask = get_universe_mask("spx")  # (T, N) bool, 缓存的
+
+# 传入 universe_mask 参数，非成分股自动排除
+result = evaluate(factor_values, forward_returns, universe_mask=spx_mask)
+validation = validate(factor_values, forward_returns, universe_mask=spx_mask)
+```
+
+```python
+result = evaluate(factor_values, forward_returns, universe_mask=spx_mask)
 # 返回:
 # {
 #     "ic_mean": 0.032,           # IC均值
