@@ -291,6 +291,14 @@ def evaluate(factor_input, forward_returns: np.ndarray, split: str = "train",
         "long_return_series": [round(float(x), 6) for x in lo_daily.tolist()],
     }
 
+    # Sanity check: flag unrealistic results
+    if abs(lo_annual) > 5.0 or abs(lo_sharpe) > 10.0:
+        result["WARNING"] = (
+            f"UNREALISTIC RESULTS (Return={lo_annual*100:.0f}%, Sharpe={lo_sharpe:.1f}). "
+            "Likely a bug in factor code: check for forward-looking bias, "
+            "data leakage, or incorrect forward_returns alignment."
+        )
+
     _logger.log("evaluate", split=split, **{k: v for k, v in result.items() if k not in ("ic_series", "quantile_returns", "long_return_series")})
 
     return result

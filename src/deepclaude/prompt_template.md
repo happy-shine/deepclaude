@@ -163,6 +163,21 @@ submit(
 )
 ```
 
+## 结果可信度检查（每次回测后必做）
+
+如果 `evaluate()` 返回的结果中包含 `WARNING` 字段，说明结果不可信。常见原因：
+- **Sharpe > 5 或年化收益 > 200%**：几乎必定是 bug，正常因子做不到这个水平
+- **前视偏差**：因子代码使用了未来数据（如用 `returns[t]` 预测 `returns[t]`）
+- **forward_returns 对齐错误**：factor[t] 应该用 returns[t+1] 评估，不是 returns[t]
+
+**正确的对齐方式：**
+```python
+factor_values = alpha(ctx)        # 用 t 时刻数据计算的因子
+fwd = returns[1:, :]              # t+1 的收益
+fac = factor_values[:-1, :]       # t 的因子值
+result = evaluate(fac, fwd, universe_mask=spx_mask[:-1])
+```
+
 ## 研究流程
 
 ```
