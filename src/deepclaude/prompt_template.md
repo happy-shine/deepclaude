@@ -47,6 +47,7 @@ from deepclaude.registry import submit
   - 固定多组 holdout：如 2016-2019训练/2020验证/2021-2023训练/2024验证...
   - 任何你认为能有效检验因子泛化能力的方法
 - **核心原则：因子必须在多个不同时间段上验证有效，而非仅在单一切分上表现好**
+- **严禁使用固定的 2016-2022/2023-2026 二分法**——这不是真正的验证，你必须用多段验证
 - 在 submit 的 analysis 中说明你采用的验证方法和各分段结果
 
 ### 算子
@@ -96,7 +97,7 @@ submit 前必须调用 `validate()`，5道门：
 validation = validate(factor_values, forward_returns)
 # 返回:
 # {
-#     "param_robust": True/False,  # 窗口±10%后IC变化<30%
+#     "param_robust": True/False,  # IC变异系数<3.0（稳定性）
 #     "time_stable": True/False,   # 5段中≥4段IC为正
 #     "cap_neutral": True/False,   # 大/中/小盘都正IC
 #     "beat_random": True/False,   # 优于95%的随机因子
@@ -109,7 +110,7 @@ validation = validate(factor_values, forward_returns)
 
 | 门 | 标准 | 说明 |
 |---|------|------|
-| 参数扰动 | 窗口±10%后IC变化<30% | 参数敏感=过拟合 |
+| IC稳定性 | IC变异系数(std/mean)<3.0 | IC波动太大=不可靠 |
 | 时间稳定 | 5段中≥4段IC为正 | 不能只在某段时间有效 |
 | 跨市值 | 大/中/小盘都正IC | 不能只在某个市值段有效 |
 | 随机基线 | 优于95%的随机因子 | 排除运气成分 |
@@ -238,6 +239,10 @@ submit(
 - 换手率 < 50%
 
 达不到也可以提交，但请在 analysis 中说明为什么你认为它仍有价值。
+
+## 多样性意识
+
+在提交因子前，问自己：**这个因子和我已经提交的因子本质上是同一个东西吗？** 如果只是换了权重或加减一个信号，它不值得单独提交。你提交的每个因子应该在 analysis 中说明它与其他已提交因子的本质区别。
 
 ## 上一轮的优秀因子（供参考）
 

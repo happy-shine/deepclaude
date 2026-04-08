@@ -290,21 +290,16 @@ def validate(
 
     details = {}
 
-    # Gate 1: Parameter Robustness — IC changes < 30% when factor is shifted
+    # Gate 1: IC Stability — coefficient of variation (std/mean) < 3.0
+    # A robust factor should have IC that doesn't swing wildly relative to its mean.
     base_ic = _rank_ic_per_row(factor, forward_returns)
     base_ic_mean = float(np.nanmean(base_ic))
-    ic_variants = []
-    for shift in [-2, -1, 1, 2]:
-        shifted = np.roll(factor, shift, axis=0)
-        if shift > 0:
-            shifted[:shift, :] = np.nan
-        else:
-            shifted[shift:, :] = np.nan
-        ic_v = float(np.nanmean(_rank_ic_per_row(shifted, forward_returns)))
-        ic_variants.append(ic_v)
-    ic_change = max(abs(v - base_ic_mean) for v in ic_variants) / max(abs(base_ic_mean), 1e-8)
-    param_robust = ic_change < 0.30
-    details["param_robust_max_change"] = round(ic_change, 4)
+    base_ic_std = float(np.nanstd(base_ic))
+    ic_cv = base_ic_std / max(abs(base_ic_mean), 1e-8)
+    param_robust = ic_cv < 3.0
+    details["ic_stability_cv"] = round(ic_cv, 4)
+    details["ic_stability_mean"] = round(base_ic_mean, 6)
+    details["ic_stability_std"] = round(base_ic_std, 6)
 
     # Gate 2: Time Stability — IC positive in >= 4 of 5 segments
     T = len(base_ic)
