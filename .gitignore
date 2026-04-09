@@ -10,3 +10,4 @@ logs/
 *.parquet
 .env
 .venv/
+deepclaude_state.json

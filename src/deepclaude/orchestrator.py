@@ -1,4 +1,4 @@
-"""Evolution orchestrator — launches concurrent Claude Code instances."""
+"""Evolution orchestrator — launches sequential Claude Code instances with resume support."""
 
 from __future__ import annotations
 
@@ -14,11 +14,13 @@ from deepclaude import registry
 
 
 CLAUDE_CMD = "claude"
+STATE_FILE = "deepclaude_state.json"
+MAX_RESUME_RETRIES = 3
+RESUME_PROMPT = "你的session因网络问题中断了，请从中断处继续你的研究工作。"
 
 
 @dataclass
 class Config:
-    n_parallel: int = 3
     max_rounds: int = 10
     top_k: int = 5
     max_iterations: int = 20
@@ -65,6 +67,38 @@ def build_prompt(top_k_factors: list[dict], config: Config) -> str:
 class Orchestrator:
     def __init__(self, config: Config):
         self.config = config
+        self._claude_session_id: str | None = None
+
+    # -- State persistence --------------------------------------------------
+
+    def _state_path(self) -> Path:
+        return Path(self.config.project_root) / STATE_FILE
+
+    def _save_state(self, run_ts: str, completed_rounds: int,
+                    session_id: str | None = None,
+                    claude_session_id: str | None = None,
+                    status: str = "running"):
+        state = {
+            "run_ts": run_ts,
+            "completed_rounds": completed_rounds,
+            "max_rounds": self.config.max_rounds,
+            "current_session": {
+                "session_id": session_id,
+                "claude_session_id": claude_session_id,
+                "status": status,
+            },
+        }
+        tmp = self._state_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        os.rename(str(tmp), str(self._state_path()))
+
+    def _load_state(self) -> dict | None:
+        path = self._state_path()
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    # -- Workspace ----------------------------------------------------------
 
     def _make_workspace(self, session_id: str) -> str:
         ws = Path(self.config.project_root) / "workspace" / session_id
@@ -72,10 +106,11 @@ class Orchestrator:
         (ws / "scratch").mkdir(exist_ok=True)
         return str(ws)
 
-    def _launch_claude(self, prompt: str, workspace: str, session_id: str) -> subprocess.Popen:
-        """Launch a Claude Code CLI process."""
-        final_prompt = prompt.replace("{output_dir}", workspace)
+    # -- Claude CLI ---------------------------------------------------------
 
+    def _launch_claude(self, prompt: str, workspace: str, session_id: str,
+                       resume_id: str | None = None) -> subprocess.Popen:
+        """Launch a Claude Code CLI process. If resume_id is given, resume that session."""
         factor_dir = str(Path(self.config.project_root) / "factors")
         Path(factor_dir).mkdir(parents=True, exist_ok=True)
 
@@ -94,9 +129,13 @@ class Orchestrator:
             "--output-format", "stream-json",
             "--verbose",
             "--model", "opus",
-            "--add-dir", workspace,
-            "-p", final_prompt,
         ]
+
+        if resume_id:
+            cmd.extend(["--resume", resume_id, "-p", RESUME_PROMPT])
+        else:
+            final_prompt = prompt.replace("{output_dir}", workspace)
+            cmd.extend(["--add-dir", workspace, "-p", final_prompt])
 
         proc = subprocess.Popen(
             cmd, env=env,
@@ -107,22 +146,27 @@ class Orchestrator:
         return proc
 
     def _stream_output(self, proc: subprocess.Popen, session_id: str):
-        """Read stream-json output, print status, and save to logs/."""
+        """Read stream-json output, capture Claude session ID, print status, save to logs/."""
         logs_dir = Path(self.config.project_root) / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = open(logs_dir / f"{session_id}.jsonl", "a", encoding="utf-8")
+        self._claude_session_id = None
 
         def _reader(pipe, label):
             for line in pipe:
                 line = line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue
-                # Save raw line to JSONL log
                 log_file.write(line + "\n")
                 log_file.flush()
                 try:
                     event = json.loads(line)
                     event_type = event.get("type", "")
+
+                    # Capture Claude's internal session ID for resume
+                    if "session_id" in event and not self._claude_session_id:
+                        self._claude_session_id = event["session_id"]
+
                     if event_type == "assistant":
                         msg = event.get("message", "")
                         if isinstance(msg, dict):
@@ -138,6 +182,8 @@ class Orchestrator:
                         output = event.get("output", "")
                         print(f"[{session_id}] result: {output}")
                     elif event_type == "result":
+                        if "session_id" in event:
+                            self._claude_session_id = event["session_id"]
                         print(f"[{session_id}] Done")
                 except json.JSONDecodeError:
                     print(f"[{session_id}] {label}: {line}")
@@ -148,43 +194,103 @@ class Orchestrator:
         t_err.start()
         return t_out, t_err, log_file
 
-    def run(self):
+    # -- Single round -------------------------------------------------------
+
+    def _run_round(self, round_num: int, run_ts: str, prompt: str,
+                   resume_id: str | None = None) -> bool:
+        """Run a single round. Returns True on success."""
+        session_id = f"{run_ts}_r{round_num:03d}"
+        workspace = self._make_workspace(session_id)
+
+        self._save_state(run_ts, round_num - 1, session_id, status="running")
+
+        proc = self._launch_claude(prompt, workspace, session_id, resume_id)
+        t_out, t_err, log_file = self._stream_output(proc, session_id)
+        suffix = " (resumed)" if resume_id else ""
+        print(f"[{session_id}] Launched{suffix}")
+
+        proc.wait()
+        for t in (t_out, t_err):
+            t.join(timeout=5)
+        log_file.close()
+
+        exit_code = proc.returncode
+        print(f"[{session_id}] Exited with code {exit_code}")
+
+        # Auto-resume on non-zero exit if we captured a Claude session ID
+        if exit_code != 0 and self._claude_session_id:
+            for retry in range(1, MAX_RESUME_RETRIES + 1):
+                print(f"[{session_id}] Auto-resuming (attempt {retry}/{MAX_RESUME_RETRIES})...")
+                self._save_state(run_ts, round_num - 1, session_id,
+                                 self._claude_session_id, "resuming")
+
+                proc = self._launch_claude("", workspace, session_id,
+                                           self._claude_session_id)
+                t_out, t_err, log_file = self._stream_output(proc, session_id)
+                proc.wait()
+                for t in (t_out, t_err):
+                    t.join(timeout=5)
+                log_file.close()
+
+                exit_code = proc.returncode
+                print(f"[{session_id}] Resume exited with code {exit_code}")
+                if exit_code == 0:
+                    break
+            else:
+                print(f"[{session_id}] Failed after {MAX_RESUME_RETRIES} resume attempts")
+                self._save_state(run_ts, round_num - 1, session_id,
+                                 self._claude_session_id, "failed")
+                return False
+
+        self._save_state(run_ts, round_num, session_id,
+                         self._claude_session_id, "completed")
+        return True
+
+    # -- Main loop ----------------------------------------------------------
+
+    def run(self, resume: bool = False):
         """Execute the evolution loop."""
-        print(f"=== DeepClaude Orchestrator ===")
-        print(f"Config: {self.config.n_parallel} parallel, {self.config.max_rounds} rounds, "
-              f"top {self.config.top_k} selection")
+        if resume:
+            state = self._load_state()
+            if not state:
+                print("No previous run to resume.")
+                return
+            run_ts = state["run_ts"]
+            start_round = state["completed_rounds"] + 1
+            max_rounds = state["max_rounds"]
+
+            # If last session was interrupted mid-round, resume it first
+            current = state.get("current_session", {})
+            if (current.get("status") in ("running", "resuming")
+                    and current.get("claude_session_id")):
+                print(f"Resuming interrupted session: {current['session_id']}")
+                top_k = registry.get_top_k(k=self.config.top_k)
+                prompt = build_prompt(top_k, self.config)
+                success = self._run_round(start_round, run_ts, prompt,
+                                          current["claude_session_id"])
+                if success:
+                    start_round += 1
+
+            print(f"=== DeepClaude Orchestrator (Resumed) ===")
+            print(f"Continuing from round {start_round}/{max_rounds}")
+        else:
+            run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            start_round = 1
+            max_rounds = self.config.max_rounds
+            print(f"=== DeepClaude Orchestrator ===")
+
+        print(f"Config: {max_rounds} rounds, top {self.config.top_k} selection")
         print()
 
-        run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        for round_num in range(self.config.max_rounds):
-            print(f"--- Round {round_num + 1}/{self.config.max_rounds} ---")
+        for round_num in range(start_round, max_rounds + 1):
+            print(f"--- Round {round_num}/{max_rounds} ---")
 
             top_k = registry.get_top_k(k=self.config.top_k)
             prompt = build_prompt(top_k, self.config)
 
-            processes = []
-            threads = []
-            log_files = []
-            for i in range(self.config.n_parallel):
-                session_id = f"{run_ts}_r{round_num + 1:03d}_i{i + 1:03d}"
-                workspace = self._make_workspace(session_id)
-                proc = self._launch_claude(prompt, workspace, session_id)
-                t_out, t_err, log_file = self._stream_output(proc, session_id)
-                processes.append((proc, session_id))
-                threads.extend([t_out, t_err])
-                log_files.append(log_file)
-                print(f"[{session_id}] Launched")
-
-            for proc, sid in processes:
-                proc.wait()
-                print(f"[{sid}] Exited with code {proc.returncode}")
-
-            for t in threads:
-                t.join(timeout=5)
-
-            for lf in log_files:
-                lf.close()
+            success = self._run_round(round_num, run_ts, prompt)
+            if not success:
+                print(f"Round {round_num} failed. Continuing to next round.")
 
             new_top = registry.get_top_k(k=1)
             if new_top:
@@ -198,3 +304,7 @@ class Orchestrator:
         for i, f in enumerate(final_top):
             print(f"  #{i+1} {f['name']} -- score: {f['composite_score']}, "
                   f"IC_IR: {f['metrics'].get('ic_ir', '?')}")
+
+        # Clean up state file on successful completion
+        if self._state_path().exists():
+            self._state_path().unlink()
