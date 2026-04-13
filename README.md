@@ -2,35 +2,37 @@
 
 Claude Code 驱动的自主量化因子研究系统。
 
-DeepClaude launches Claude Code instances as autonomous quant researchers. Each instance designs, backtests, and iterates alpha factors using a Python SDK with 49 numba JIT operators. A multi-round evolution orchestrator selects top-K factors and injects them into the next generation's prompt.
+启动 Claude Code 实例作为自主量化研究员，自动设计、回测、迭代 alpha 因子。SDK 提供 49 个 numba JIT 算子、回测引擎和因子注册表。多轮进化编排器通过 top-K 选择将优秀因子注入下一代的 prompt。
 
-## Architecture
+[English](README_EN.md)
+
+## 架构
 
 ```
-Orchestrator (Python)
+编排器 (Python)
   │
-  ├── Round 1 → Claude Code instance → SDK → factors/
-  ├── Round 2 → Claude Code instance → SDK → factors/
-  │   (top-K from Round 1 injected into prompt)
+  ├── 第 1 轮 → Claude Code 实例 → SDK → factors/
+  ├── 第 2 轮 → Claude Code 实例 → SDK → factors/
+  │   (第 1 轮的 top-K 因子注入 prompt)
   └── ...
 ```
 
-**SDK Modules:**
-- `data` — Loads daily OHLCV parquet data (610 US stocks, 2015–2026), with S&P 500 universe mask
-- `operators` — 49 numba JIT-compiled operators (time-series, cross-sectional, arithmetic, logic)
-- `backtest` — Evaluation engine: IC/IR, Sharpe, quantile returns, turnover, IC decay; 5-gate validation
-- `registry` — Atomic factor submission with composite scoring, top-K selection, lineage tracking
-- `orchestrator` — Multi-round evolution loop with auto-resume on failure
+**SDK 模块：**
+- `data` — 加载日频 OHLCV parquet 数据（610 只美股，2015–2026），含 S&P 500 成分股遮罩
+- `operators` — 49 个 numba JIT 编译算子（时序、截面、算术、逻辑）
+- `backtest` — 评估引擎：IC/IR、Sharpe、分位收益、换手率、IC 衰减；5 道验证关卡
+- `registry` — 因子原子提交、复合评分、top-K 筛选、血缘追踪
+- `orchestrator` — 多轮进化循环，支持断点续跑
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 前置条件
 
 - Python 3.11+
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- Daily OHLCV data in parquet format (see [Data Format](#data-format))
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) 已安装并认证
+- 日频 OHLCV 数据（parquet 格式，见[数据格式](#数据格式)）
 
-### Install
+### 安装
 
 ```bash
 git clone https://github.com/happy-shine/deepclaude.git
@@ -38,45 +40,45 @@ cd deepclaude
 pip install -e .
 ```
 
-### Run
+### 运行
 
 ```bash
-# Single evolution run (10 rounds, top-5 selection)
+# 进化运行（10 轮，top-5 选择）
 python -m deepclaude --rounds 10 --top-k 5 --data-dir /path/to/your/data
 
-# Resume interrupted run
+# 断点续跑
 python -m deepclaude --resume
 ```
 
-### Environment Variables
+### 环境变量
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEEPCLAUDE_DATA_DIR` | `./data` | Path to OHLCV parquet directory |
-| `DEEPCLAUDE_FACTOR_DIR` | `./factors` | Factor submission output |
-| `DEEPCLAUDE_WORKSPACE` | `./workspace` | Claude session workspace |
-| `DEEPCLAUDE_SESSION_ID` | `local` | Session identifier |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DEEPCLAUDE_DATA_DIR` | `./data` | OHLCV parquet 数据目录 |
+| `DEEPCLAUDE_FACTOR_DIR` | `./factors` | 因子提交输出目录 |
+| `DEEPCLAUDE_WORKSPACE` | `./workspace` | Claude 会话工作区 |
+| `DEEPCLAUDE_SESSION_ID` | `local` | 会话标识 |
 
-## Data Format
+## 数据格式
 
-Place parquet files in `DEEPCLAUDE_DATA_DIR/vbt_ready/`:
+将 parquet 文件放在 `DEEPCLAUDE_DATA_DIR/vbt_ready/` 下：
 
 ```
 data/vbt_ready/
-├── open.parquet      # (T, N) float32 — dates × stocks
+├── open.parquet      # (T, N) float32 — 日期 × 股票
 ├── high.parquet
 ├── low.parquet
 ├── close.parquet
 ├── volume.parquet
-├── returns.parquet   # daily returns
-└── spx_mask.parquet  # S&P 500 membership (bool)
+├── returns.parquet   # 日收益率
+└── spx_mask.parquet  # S&P 500 成分股标记 (bool)
 ```
 
-All files share the same DatetimeIndex (rows) and ticker columns.
+所有文件共享相同的 DatetimeIndex（行）和 ticker 列。
 
-## SDK Usage
+## SDK 使用
 
-Claude Code instances use the SDK autonomously, but you can also use it interactively:
+Claude Code 实例自主使用 SDK，你也可以交互式调用：
 
 ```python
 from deepclaude.data import get, get_universe_mask
@@ -84,66 +86,66 @@ from deepclaude.operators import *
 from deepclaude.backtest import evaluate, validate
 from deepclaude.registry import submit
 
-# Load data
+# 加载数据
 close = get("close")
 returns = get("returns")
 spx_mask = get_universe_mask("spx")
 
-# Compute factor
+# 计算因子
 factor = ts_zscore(ts_returns(close, 20), 60)
 
-# Evaluate (align factor[:-1] with returns[1:])
+# 评估（对齐：factor[:-1] 对应 returns[1:]）
 result = evaluate(factor[:-1], returns[1:], universe_mask=spx_mask[:-1])
 print(f"IC_IR: {result['ic_ir']:.3f}, Sharpe: {result['long_sharpe']:.3f}")
 
-# Validate (5 anti-overfit gates)
+# 验证（5 道反过拟合关卡）
 gates = validate(factor[:-1], returns[1:], universe_mask=spx_mask[:-1])
 
-# Submit to registry
-submit("my_factor", factor, "import code...", result, gates, "Analysis notes")
+# 提交到注册表
+submit("my_factor", factor, "import code...", result, gates, "分析笔记")
 ```
 
-## Operators
+## 算子
 
-49 numba JIT-compiled operators across 4 categories:
+49 个 numba JIT 编译算子，分 4 类：
 
-**Time-series:** `ts_mean`, `ts_std`, `ts_zscore`, `ts_returns`, `ts_log_returns`, `ts_delta`, `ts_delay`, `ts_sum`, `ts_product`, `ts_min`, `ts_max`, `ts_argmin`, `ts_argmax`, `ts_rank`, `ts_skew`, `ts_kurt`, `ts_corr`, `ts_cov`, `ts_regression_residual`, `ts_linear_slope`, `ts_weighted_mean`, `ts_decay_linear`, `ts_momentum`, `ts_ema`, `ts_RSI`
+**时序：** `ts_mean`, `ts_std`, `ts_zscore`, `ts_returns`, `ts_log_returns`, `ts_delta`, `ts_delay`, `ts_sum`, `ts_product`, `ts_min`, `ts_max`, `ts_argmin`, `ts_argmax`, `ts_rank`, `ts_skew`, `ts_kurt`, `ts_corr`, `ts_cov`, `ts_regression_residual`, `ts_linear_slope`, `ts_weighted_mean`, `ts_decay_linear`, `ts_momentum`, `ts_ema`, `ts_RSI`
 
-**Cross-sectional:** `cs_rank`, `cs_zscore`, `cs_demean`, `cs_percentile`, `cs_winsorize`, `cs_normalize`
+**截面：** `cs_rank`, `cs_zscore`, `cs_demean`, `cs_percentile`, `cs_winsorize`, `cs_normalize`
 
-**Arithmetic:** `log1p`, `sign`, `abs_val`, `power`, `clip`, `diff`, `scale`, `add`, `subtract`, `multiply`, `divide`, `where`
+**算术：** `log1p`, `sign`, `abs_val`, `power`, `clip`, `diff`, `scale`, `add`, `subtract`, `multiply`, `divide`, `where`
 
-**Logic:** `greater`, `less`, `and_op`, `or_op`, `not_op`, `if_else`
+**逻辑：** `greater`, `less`, `and_op`, `or_op`, `not_op`, `if_else`
 
-## Backtest
+## 回测
 
-**Evaluation metrics:** IC mean, IC std, IC IR, positive IC ratio, quantile returns (5 bins), long return, long Sharpe, long max drawdown, monotonicity, turnover, IC decay curve
+**评估指标：** IC 均值、IC 标准差、IC IR、正 IC 比例、分位收益（5 档）、多头收益、多头 Sharpe、多头最大回撤、单调性、换手率、IC 衰减曲线
 
-**Validation gates:**
-1. IC stability (CV < 1.0)
-2. Time stability (positive IC in ≥60% of years)
-3. Cap neutrality (large-cap IC ≥ 50% of overall)
-4. Beat random (IC > 95th percentile of 100 shuffled baselines)
-5. Decay slowness (IC at lag-5 ≥ 30% of lag-1)
+**验证关卡：**
+1. IC 稳定性（CV < 1.0）
+2. 时间稳定性（≥60% 年份 IC 为正）
+3. 市值中性（大盘股 IC ≥ 整体的 50%）
+4. 击败随机（IC > 100 次 shuffle 基线的 95 分位）
+5. 衰减缓慢（lag-5 IC ≥ lag-1 的 30%）
 
-Built-in 10bps transaction costs and 30-stock portfolio cap.
+内置 10bps 交易成本，持仓上限 30 只。
 
-## Project Structure
+## 项目结构
 
 ```
 deepclaude/
 ├── src/deepclaude/
-│   ├── config.py            # Environment-based configuration
-│   ├── data.py              # Parquet data loading with LRU cache
-│   ├── operators.py         # 49 numba JIT operators
-│   ├── backtest.py          # Evaluate & validate engine
-│   ├── registry.py          # Factor storage & scoring
-│   ├── orchestrator.py      # Evolution loop with resume
-│   ├── logger.py            # JSONL structured logging
-│   ├── prompt_template.md   # Claude researcher prompt
-│   └── report_template.html # HTML report template
-├── tests/                   # Test suite
-├── docs/plans/              # Design & implementation docs
+│   ├── config.py            # 环境变量配置
+│   ├── data.py              # Parquet 数据加载（LRU 缓存）
+│   ├── operators.py         # 49 个 numba JIT 算子
+│   ├── backtest.py          # 评估 & 验证引擎
+│   ├── registry.py          # 因子存储 & 评分
+│   ├── orchestrator.py      # 进化循环（断点续跑）
+│   ├── logger.py            # JSONL 结构化日志
+│   ├── prompt_template.md   # Claude 研究员 prompt
+│   └── report_template.html # HTML 报告模板
+├── tests/                   # 测试
+├── docs/plans/              # 设计 & 实现文档
 └── pyproject.toml
 ```
 
