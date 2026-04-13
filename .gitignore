@@ -11,3 +11,5 @@ logs/
 .env
 .venv/
 deepclaude_state.json
+research.log
+workspace.zip

@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("DEEPCLAUDE_DATA_DIR", "/Users/shine/trader-data"))
+DATA_DIR = Path(os.environ.get("DEEPCLAUDE_DATA_DIR", "./data"))
 FACTOR_DIR = Path(os.environ.get("DEEPCLAUDE_FACTOR_DIR", str(Path.cwd() / "factors")))
 WORKSPACE = Path(os.environ.get("DEEPCLAUDE_WORKSPACE", str(Path.cwd() / "workspace")))
 SESSION_ID = os.environ.get("DEEPCLAUDE_SESSION_ID", "local")

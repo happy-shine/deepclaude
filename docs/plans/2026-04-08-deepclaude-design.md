@@ -47,7 +47,7 @@ DeepClaude 是一个基于 Claude Code CLI 的自主量化因子研究系统。P
 
 ### 1. `data` — 数据层
 
-从 `/Users/shine/trader-data/` 读取预处理好的 parquet 宽表。
+从 `./data/` 读取预处理好的 parquet 宽表。
 
 **数据源：**
 - `vbt_ready/` 下的宽表：open, high, low, close, volume, returns

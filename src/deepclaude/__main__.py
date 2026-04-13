@@ -11,7 +11,7 @@ def main():
     parser.add_argument("--rounds", "-r", type=int, default=10, help="Max evolution rounds")
     parser.add_argument("--top-k", "-k", type=int, default=5, help="Top K factors for selection")
     parser.add_argument("--max-iter", type=int, default=999, help="Max iterations per Claude instance")
-    parser.add_argument("--data-dir", type=str, default="/Users/shine/trader-data", help="Path to trader-data")
+    parser.add_argument("--data-dir", type=str, default="./data", help="Path to trader-data")
     parser.add_argument("--project-root", type=str, default=".", help="Project root directory")
     parser.add_argument("--resume", action="store_true", help="Resume previous interrupted run")
     args = parser.parse_args()

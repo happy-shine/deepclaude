@@ -22,7 +22,7 @@
 **Step 1: Initialize git repo**
 
 ```bash
-cd /Users/shine/PycharmProjects/deepclaude
+cd /path/to/deepclaude
 git init
 ```
 
@@ -68,7 +68,7 @@ testpaths = ["tests"]
 import os
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("DEEPCLAUDE_DATA_DIR", "/Users/shine/trader-data"))
+DATA_DIR = Path(os.environ.get("DEEPCLAUDE_DATA_DIR", "./data"))
 FACTOR_DIR = Path(os.environ.get("DEEPCLAUDE_FACTOR_DIR", str(Path.cwd() / "factors")))
 WORKSPACE = Path(os.environ.get("DEEPCLAUDE_WORKSPACE", str(Path.cwd() / "workspace")))
 SESSION_ID = os.environ.get("DEEPCLAUDE_SESSION_ID", "local")
@@ -109,11 +109,11 @@ def sample_data(rng):
 
 **Step 4: Install in dev mode and verify**
 
-Run: `cd /Users/shine/PycharmProjects/deepclaude && pip install -e ".[dev]"`
+Run: `cd /path/to/deepclaude && pip install -e ".[dev]"`
 Expected: successful install
 
 Run: `python -c "from deepclaude import config; print(config.DATA_DIR)"`
-Expected: `/Users/shine/trader-data`
+Expected: `./data`
 
 **Step 5: Create .gitignore and commit**
 
@@ -218,7 +218,7 @@ class TestGetUniverse:
 
 **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/shine/PycharmProjects/deepclaude && python -m pytest tests/test_data.py -v`
+Run: `cd /path/to/deepclaude && python -m pytest tests/test_data.py -v`
 Expected: FAIL — `cannot import name 'data'` or `ModuleNotFoundError`
 
 **Step 3: Implement data module**
@@ -324,7 +324,7 @@ def get_universe(name: str, month: str) -> list[str]:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/shine/PycharmProjects/deepclaude && python -m pytest tests/test_data.py -v`
+Run: `cd /path/to/deepclaude && python -m pytest tests/test_data.py -v`
 Expected: all PASS
 
 **Step 5: Commit**
@@ -339,7 +339,7 @@ git commit -m "feat: data module with parquet loading, LRU cache, and date filte
 ### Task 3: Operators Module — Port Existing 39 Operators
 
 **Files:**
-- Create: `src/deepclaude/operators.py` (copy from `/Users/shine/Downloads/operators.py`)
+- Create: `src/deepclaude/operators.py` (copy from `operators.py (source)`)
 - Create: `tests/test_operators.py`
 
 **Step 1: Write failing tests for representative operators**
@@ -434,7 +434,7 @@ Expected: FAIL
 
 **Step 3: Copy and clean existing operators.py**
 
-Copy `/Users/shine/Downloads/operators.py` to `src/deepclaude/operators.py` with these changes:
+Copy `operators.py (source)` to `src/deepclaude/operators.py` with these changes:
 - Update module docstring to reference DeepClaude
 - Remove unused `_nan_safe_div` helper
 - Keep `_F32_NAN` helper
@@ -1988,7 +1988,7 @@ class Config:
     top_k: int = 5
     max_iterations: int = 20
     project_root: str = "."
-    data_dir: str = "/Users/shine/trader-data"
+    data_dir: str = "./data"
     composite_weights: dict = field(default_factory=lambda: {
         "ic_ir": 0.30, "sharpe": 0.20, "monotonicity": 0.15,
         "ic_positive_pct": 0.15, "long_return": 0.10, "decay": 0.10,
@@ -2184,7 +2184,7 @@ def main():
     parser.add_argument("--rounds", "-r", type=int, default=10, help="Max evolution rounds")
     parser.add_argument("--top-k", "-k", type=int, default=5, help="Top K factors for selection")
     parser.add_argument("--max-iter", type=int, default=20, help="Max iterations per Claude instance")
-    parser.add_argument("--data-dir", type=str, default="/Users/shine/trader-data", help="Path to trader-data")
+    parser.add_argument("--data-dir", type=str, default="./data", help="Path to trader-data")
     parser.add_argument("--project-root", type=str, default=".", help="Project root directory")
     args = parser.parse_args()
 
@@ -2206,7 +2206,7 @@ if __name__ == "__main__":
 
 **Step 2: Verify it runs (help only, no actual Claude launch)**
 
-Run: `cd /Users/shine/PycharmProjects/deepclaude && python -m deepclaude --help`
+Run: `cd /path/to/deepclaude && python -m deepclaude --help`
 Expected: prints usage with all flags
 
 **Step 3: Commit**

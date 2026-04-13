@@ -25,7 +25,7 @@ class Config:
     top_k: int = 5
     max_iterations: int = 20
     project_root: str = "."
-    data_dir: str = "/Users/shine/trader-data"
+    data_dir: str = "./data"
     composite_weights: dict = field(default_factory=lambda: {
         "ic_ir": 0.25, "long_sharpe": 0.25, "monotonicity": 0.15,
         "ic_positive_pct": 0.15, "long_return": 0.10, "decay": 0.10,
