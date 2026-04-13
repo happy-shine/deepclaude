@@ -24,6 +24,71 @@ Orchestrator (Python)
 - `registry` — Atomic factor submission with composite scoring, top-K selection, lineage tracking
 - `orchestrator` — Multi-round evolution loop with auto-resume on failure
 
+## Workflow
+
+### Orchestrator Layer (Multi-Round Evolution)
+
+```
+python -m deepclaude --rounds 10 --top-k 5
+         │
+         ▼
+┌─── Round 1 ──────────────────────────────────┐
+│  Launch Claude Code instance                  │
+│  Inject prompt_template + top-K from prev     │
+│  Claude researches autonomously (see below)   │
+│  Output: factors/*.json                       │
+└──────────────────────────────────────────────┘
+         │ registry selects top-K
+         ▼
+┌─── Round 2 ──────────────────────────────────┐
+│  Top-K factors injected into new prompt       │
+│  Claude evolves on prior work / explores new  │
+└──────────────────────────────────────────────┘
+         │
+         ▼ ... repeat until max_rounds
+         │
+    Final output: top-K factor ranking
+```
+
+### Claude Single-Round Research Flow
+
+Each Claude Code instance autonomously executes:
+
+```
+Choose research direction
+    │
+    ▼
+Design factor ◄──── Self-review fails (look-ahead bias? duplicate?)
+    │ passes
+    ▼
+Implement + evaluate()
+    │
+    ▼
+Analyze results ── unsatisfied w/ direction → improve → back to design
+    │                unsatisfied w/o direction → switch direction
+    │ satisfied
+    ▼
+validate() + multi-period time validation
+    │
+    ▼
+submit() → write to factors/*.json
+    │
+    ▼
+Explore new directions / iterations exhausted → generate HTML report
+```
+
+### Skills (Claude Code Skills)
+
+Claude Code instances access domain knowledge via skills, no human intervention needed:
+
+| Skill | Purpose |
+|-------|---------|
+| `/deepclaude-sdk` | SDK API reference (data, operators, backtest, validation, submission) |
+| `/deepclaude-backtest` | Backtest best practices (alignment, costs, regime, sanity checks) |
+| `/deepclaude-report` | Generate Chinese HTML research report |
+
+Skill files are in `skills/`. Install to `~/.claude/skills/` to use.
+
 ## Quick Start
 
 ### Prerequisites

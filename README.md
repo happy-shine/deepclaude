@@ -24,6 +24,71 @@ Claude Code 驱动的自主量化因子研究系统。
 - `registry` — 因子原子提交、复合评分、top-K 筛选、血缘追踪
 - `orchestrator` — 多轮进化循环，支持断点续跑
 
+## 工作流程
+
+### 编排器层（多轮进化）
+
+```
+python -m deepclaude --rounds 10 --top-k 5
+         │
+         ▼
+┌─── 第 1 轮 ──────────────────────────────────┐
+│  启动 Claude Code 实例                        │
+│  注入 prompt_template + 上轮 top-K 因子        │
+│  Claude 自主研究（见下方单轮流程）              │
+│  产出：factors/*.json                         │
+└──────────────────────────────────────────────┘
+         │ registry 选出 top-K
+         ▼
+┌─── 第 2 轮 ──────────────────────────────────┐
+│  top-K 因子注入新一轮 prompt                   │
+│  Claude 在前人基础上进化/探索新方向             │
+└──────────────────────────────────────────────┘
+         │
+         ▼ ... 重复直到 max_rounds
+         │
+    最终输出：top-K 因子排名
+```
+
+### Claude 单轮研究流程
+
+每个 Claude Code 实例内部自主执行：
+
+```
+选择研究方向
+    │
+    ▼
+设计因子 ◄──── 自审不通过（前视偏差？换皮？）
+    │ 通过
+    ▼
+实现 + evaluate()
+    │
+    ▼
+分析结果 ──── 不满意有方向 → 改进 → 回到设计
+    │         不满意无方向 → 换方向
+    │ 满意
+    ▼
+validate() + 多段时间验证
+    │
+    ▼
+submit() → 写入 factors/*.json
+    │
+    ▼
+继续探索新方向 / 迭代用尽 → 生成 HTML 研究报告
+```
+
+### Skills（Claude Code 技能）
+
+Claude Code 实例通过 skill 获取领域知识，无需人工干预：
+
+| Skill | 用途 |
+|-------|------|
+| `/deepclaude-sdk` | SDK API 参考（数据、算子、回测、验证、提交） |
+| `/deepclaude-backtest` | 回测注意事项（对齐、成本、regime、可信度检查） |
+| `/deepclaude-report` | 生成中文可视化 HTML 研究报告 |
+
+Skills 文件在 `skills/` 目录下，安装到 `~/.claude/skills/` 后即可使用。
+
 ## 快速开始
 
 ### 前置条件
